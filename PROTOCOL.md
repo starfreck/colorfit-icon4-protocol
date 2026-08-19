@@ -71,18 +71,85 @@ All protocol details verified via live BLE communication and APK decompilation.
 
 | Cmd | Hex | Description |
 |-----|-----|-------------|
-| 0x32 | 50 | Today's steps |
-| 0x37 | 55 | Today's HR |
-| 0xAB | 171 | HR history |
-| 0xBC | 188 | Sleep data |
-| 0xB2 | 178 | Step detail |
-| 0x33 | 51 | Step history |
-| 0x31 | 49 | Time sync |
-| 0x2E | 46 | Device version |
+| 0x17 | 23 | Set time system (0=12h, 1=24h) |
+| 0x27 | 39 | Query time system |
 | 0x2A | 42 | Metric system |
-| 0x81 | 129 | Bond state |
+| 0x2E | 46 | Device version |
+| 0x31 | 49 | Time sync |
+| 0x32 | 50 | Today's steps |
+| 0x33 | 51 | Step history |
+| 0x37 | 55 | Today's HR |
+| 0x5A | 90 | Device info query |
 | 0x77 | 119 | Create bond |
+| 0x81 | 129 | Bond state |
+| 0xAB | 171 | HR history |
+| 0xB2 | 178 | Step detail |
+| 0xB4 | 180 | Watch face |
+| 0xB9 | 185 | SPP handshake |
+| 0xBB | 187 | Timezone sync |
+| 0xBC | 188 | Sleep data |
+| 0xBD | 189 | Reply app query |
 | 0xF8 | 248 | Remove bond |
+
+## Connection Init Sequence (CONFIRMED)
+
+After GATT connection and notification enable, send these commands in order:
+
+```
+1. SPP Handshake:       FE EA 20 06 B9 0E
+2. App Protocol Query:  FE EA 20 07 BD 16 00
+3. Device Info Query:   FE EA 20 06 5A 00
+4. Time Sync:           FE EA 10 0A 31 XX XX XX XX 08
+5. Timezone Sync:       FE EA 10 0B BB 07 00 XX XX XX XX
+```
+
+The watch responds to 0x5A with protocol version (e.g., "MOYOUNG-V2").
+
+## Time Sync (cmd 0x31)
+
+Sends current time to the watch.
+
+**Payload (5 bytes):**
+| Offset | Field | Description |
+|--------|-------|-------------|
+| [0..3] | timestamp | Unix timestamp (big-endian uint32, seconds) |
+| [4] | day_of_week | Day of week (8 = constant) |
+
+**Example:** `FE EA 10 0A 31 6A 85 3E A0 08`
+
+## Timezone Sync (cmd 0xBB)
+
+Sends timezone offset to the watch.
+
+**Payload (6 bytes):**
+| Offset | Field | Description |
+|--------|-------|-------------|
+| [0] | constant | 7 |
+| [1] | constant | 0 |
+| [2..5] | offset | Timezone offset in seconds (little-endian int32) |
+
+**Example:** `FE EA 10 0B BB 07 00 E8 03 00 00` (UTC+8 = +28800s)
+
+## Time System (cmd 0x17 / 0x27)
+
+Sets or queries 12/24 hour format.
+
+**Set (cmd 0x17):**
+| Offset | Field | Description |
+|--------|-------|-------------|
+| [0] | format | 0 = 12-hour (AM/PM), 1 = 24-hour |
+
+**Query (cmd 0x27):** No payload. Returns current setting.
+
+## Watch Face (cmd 0xB4)
+
+Switches watch face type.
+
+**Payload:**
+| Offset | Field | Description |
+|--------|-------|-------------|
+| [0] | sub_cmd | 22 = get info, 35 = switch |
+| [1] | type | 1 = Photo, 2 = Video |
 
 ## HR History Response (cmd 0xAB, sub-type 0)
 
@@ -123,7 +190,71 @@ bluetoothctl devices
 bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX
 ```
 
-## Notes
+## OTA Protocol (Firmware Update)
+
+The watch uses a separate OTA service for firmware updates:
+
+| Service | UUID | Purpose |
+|---------|------|---------|
+| OTA Service | 0xAE00 | Firmware update |
+
+| Characteristic | UUID | Role |
+|----------------|------|------|
+| OTA Write | 0xAE01 | Write OTA commands |
+| OTA Notify | 0xAE02 | Receive OTA responses |
+
+### OTA Packet Format
+
+```
+[FE] [opcode] [length] [payload...]
+```
+
+| Byte | Description |
+|------|-------------|
+| 0 | Start tag (0xFE) |
+| 1 | Opcode |
+| 2 | Payload length |
+| 3+ | Payload data |
+
+### OTA Opcodes
+
+| Opcode | Hex | Description |
+|--------|-----|-------------|
+| 0xE1 | 225 | Get firmware version |
+| 0xE2 | 226 | Erase flash |
+| 0xE3 | 227 | Write data |
+| 0xE4 | 228 | Verify checksum |
+| 0xE5 | 229 | Reset device |
+| 0xE6 | 230 | Get firmware info |
+| 0xE7 | 231 | Set baud rate |
+| 0xE8 | 232 | Ping/test |
+
+### Capturing OTA Traffic
+
+```bash
+# Start capture mode
+bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX -ota
+
+# Then initiate firmware update from NoiseFit app
+# Capture saved to ota_capture.log
+```
+
+## Bond State Command (0x81)
+
+| Payload | Description |
+|---------|-------------|
+| `04 01` | Bonded |
+| `04 00` | Unbonded |
+
+Response from watch: `04 XX` where XX = 0 (unbonded), 1 (bonded), 2 (bonding)
+
+## Create Bond Command (0x77)
+
+| Payload | Description |
+|---------|-------------|
+| `04` + MAC(6 bytes) | Bond with device |
+
+Example: `FE EA 20 0C 77 04 EB 82 96 7B 74 3B`
 
 - Write to **fee2**, read responses from **fee3**
 - BLE only allows one connection at a time

@@ -23,6 +23,11 @@ var (
 	// Standard BLE
 	StdBattLevelChar = "00002a19-0000-1000-8000-00805f9b34fb"
 	StdHRMeasChar    = "00002a37-0000-1000-8000-00805f9b34fb"
+
+	// OTA service (Jieli firmware update)
+	OTAServiceUUID    = "0000ae00-0000-1000-8000-00805f9b34fb"
+	OTAWriteCharUUID  = "0000ae01-0000-1000-8000-00805f9b34fb"
+	OTANotifyCharUUID = "0000ae02-0000-1000-8000-00805f9b34fb"
 )
 
 // CrRePa frame format — CONFIRMED.
@@ -50,14 +55,19 @@ const (
 	CmdCreateBond    byte = 0x77 // Create bond
 	CmdRemoveBond    byte = 0xF8 // Remove bond
 	CmdTimezone      byte = 0xBB // Timezone sync
+
+	// OTA commands (from Jieli protocol analysis)
+	CmdOTAData     byte = 0xE1 // OTA data transfer
+	CmdOTAControl  byte = 0xE2 // OTA control (start/stop)
+	CmdOTAResponse byte = 0xE3 // OTA response from watch
 )
 
 // Sleep stage constants — CONFIRMED from CRPSleepInfo.java.
 const (
-	SleepAwake    byte = 0 // Sober/awake
-	SleepLight    byte = 1 // Light sleep
-	SleepDeep     byte = 2 // Deep/restful sleep
-	SleepREM      byte = 3 // REM sleep
+	SleepAwake byte = 0 // Sober/awake
+	SleepLight byte = 1 // Light sleep
+	SleepDeep  byte = 2 // Deep/restful sleep
+	SleepREM   byte = 3 // REM sleep
 )
 
 func SleepStageName(stage byte) string {
@@ -90,11 +100,11 @@ type StepRecord struct {
 
 // SleepRecord represents a sleep segment.
 type SleepRecord struct {
-	Stage     byte
-	Hour      int
-	Minute    int
-	StartMin  int // minutes since midnight
-	EndMin    int // minutes since midnight (for history)
+	Stage    byte
+	Hour     int
+	Minute   int
+	StartMin int // minutes since midnight
+	EndMin   int // minutes since midnight (for history)
 }
 
 // BuildPacket creates a CrRePa protocol packet.
@@ -289,4 +299,74 @@ func ParseStepHistory(payload []byte) (*StepRecord, error) {
 
 func decodeUint24LE(data []byte) uint32 {
 	return uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16
+}
+
+// OTA packet constants (from Jieli protocol analysis)
+const (
+	OTAStartTag  = 0xFE // Start marker
+	OTAEndTag    = 0xEF // End marker
+	OTAMaxPacket = 244  // Max payload per OTA packet
+)
+
+// OTA opcodes (from protocol analysis)
+const (
+	OTAOpcGetVersion byte = 0xE1 // Get firmware version
+	OTAOpcErase      byte = 0xE2 // Erase flash
+	OTAOpcWrite      byte = 0xE3 // Write data
+	OTAOpcVerify     byte = 0xE4 // Verify checksum
+	OTAOpcReset      byte = 0xE5 // Reset device
+	OTAOpcGetInfo    byte = 0xE6 // Get firmware info
+	OTAOpcSetBaud    byte = 0xE7 // Set baud rate
+	OTAOpcPing       byte = 0xE8 // Ping/test
+)
+
+// OTAFrame represents a captured OTA packet for analysis.
+type OTAFrame struct {
+	Timestamp time.Time
+	Direction string // "TX" or "RX"
+	Opcode    byte
+	Payload   []byte
+	Raw       []byte
+}
+
+// BuildOTAPacket creates a raw OTA packet (not CrRePa framed).
+func BuildOTAPacket(opcode byte, payload []byte) []byte {
+	totalLen := 3 + len(payload) // start + opcode + len + payload
+	pkt := make([]byte, 0, totalLen+1)
+	pkt = append(pkt, OTAStartTag)
+	pkt = append(pkt, opcode)
+	pkt = append(pkt, byte(len(payload)))
+	pkt = append(pkt, payload...)
+	return pkt
+}
+
+// ParseOTAPacket parses a raw OTA response.
+func ParseOTAPacket(data []byte) (opcode byte, payload []byte, err error) {
+	if len(data) < 3 {
+		return 0, nil, fmt.Errorf("OTA packet too short: %d", len(data))
+	}
+	if data[0] != OTAStartTag {
+		return 0, nil, fmt.Errorf("bad OTA start tag: %02x", data[0])
+	}
+	opcode = data[1]
+	payloadLen := int(data[2])
+	if len(data) >= 3+payloadLen {
+		payload = data[3 : 3+payloadLen]
+	}
+	return opcode, payload, nil
+}
+
+// BuildOTAGetVersion requests firmware version via OTA.
+func BuildOTAGetVersion() []byte {
+	return BuildOTAPacket(OTAOpcGetVersion, nil)
+}
+
+// BuildOTAPing sends a ping to test OTA connectivity.
+func BuildOTAPing() []byte {
+	return BuildOTAPacket(OTAOpcPing, []byte{0x01, 0x02, 0x03})
+}
+
+// BuildOTAReset triggers a device reset via OTA.
+func BuildOTAReset() []byte {
+	return BuildOTAPacket(OTAOpcReset, nil)
 }

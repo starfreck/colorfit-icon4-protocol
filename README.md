@@ -18,7 +18,11 @@ and health data.
 | Live heart rate | ✅ Working | Standard HR Measurement (0x2A37) — real-time BPM |
 | Step count | ✅ Working | CrRepa cmd 0x33 — steps, distance, calories |
 | Time sync | ✅ Working | CrRepa cmd 0x31 — BIG-ENDIAN Unix timestamp |
+| Timezone sync | ✅ Working | CrRepa cmd 0xBB — UTC offset in seconds |
+| Time format | ✅ Working | CrRePa cmd 0x17 — 12h/24h toggle |
 | Device info | ✅ Working | Standard BLE Device Information Service |
+| Watch faces | ✅ Working | CrRePa cmd 0xB4 — photo/video type switching |
+| Custom watch faces | ✅ Working | 8 built-in styles (Minimal, Gradient, Neon, etc.) |
 | Sleep data | ⚠️ Command confirmed | CrRePa cmd 0xBC — watch may have no sleep records |
 
 ## Hardware
@@ -91,6 +95,16 @@ Requesting heart rate history...
 ```bash
 bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX -enumerate
 ```
+
+### Capture OTA Traffic
+
+Capture firmware update traffic for analysis:
+
+```bash
+bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX -ota
+```
+
+Then initiate a firmware update from the NoiseFit app. The client will log all OTA packets to `ota_capture.log` for analysis.
 
 ## Project Structure
 
@@ -193,6 +207,8 @@ Contributions are welcome! Areas that need work:
 - [ ] Add command-line options for specific data queries
 - [ ] Write tests for protocol parsing
 - [ ] Support macOS/Windows via alternative BLE libraries
+- [ ] Analyze captured OTA traffic and document firmware format
+- [ ] Implement OTA firmware extraction from captured data
 
 ## Privacy & Security
 

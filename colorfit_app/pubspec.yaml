@@ -1,0 +1,55 @@
+name: colorfit_app
+description: "ColorFit Icon 4 - Local BLE Client"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # BLE
+  flutter_blue_plus: ^1.35.2
+  
+  # State Management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+  
+  # UI
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  flutter_animate: ^4.5.2
+  gap: ^3.0.1
+  
+  # Navigation
+  go_router: ^14.8.1
+  
+  # Storage
+  shared_preferences: ^2.3.4
+  hive_flutter: ^1.1.0
+  
+  # Utils
+  intl: ^0.19.0
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+  shadcn_ui: ^0.0.0
+  fl_chart: ^1.2.0
+  hive: ^2.2.3
+  permission_handler: ^13.0.1
+  image_picker: ^1.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  
+  # Code Generation
+  build_runner: ^2.4.14
+  riverpod_generator: ^2.6.3
+  freezed: ^2.5.8
+  json_serializable: ^6.9.2
+
+flutter:
+  uses-material-design: true
