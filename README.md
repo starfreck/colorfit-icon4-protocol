@@ -1,230 +1,83 @@
-# Noise ColorFit Icon 4 — Local BLE Client
+# Noise ColorFit Icon 4 — Flutter App & Reverse-Engineered BLE Protocol Client
 
-A reverse-engineered, cloud-free Go client for the **Noise ColorFit Icon 4** smartwatch.
-Reads heart rate, steps, battery, and sleep data directly over Bluetooth LE — no vendor app, no cloud, no account required.
+A reverse-engineered, cloud-free Flutter companion app and protocol documentation for the **Noise ColorFit Icon 4** smartwatch (Jieli MCU / MOYOUNG CrRePa platform).
 
-## Why?
+---
 
-The NoiseFit app requires a cloud account, sends your health data to remote servers, and
-uses analytics/telemetry. This project gives you **full local control** over your own watch
-and health data.
+## 📊 Status & Feature Summary
 
-## What's Working
+### ✅ What Works
+| Feature | Status | Details |
+|---|---|---|
+| **BLE Scanning & Pairing** | ✅ Working | Auto-filters connected devices, MAC `EB:82:96:7B:74:3B` session persistence |
+| **Battery Monitoring** | ✅ Working | Real-time percentage read via standard BLE service (`0x180F`) |
+| **Live Heart Rate** | ✅ Working | Real-time BPM streaming (`0x2A37`) |
+| **Heart Rate History** | ✅ Working | Timestamped BPM logs via CrRePa command `0xAB` |
+| **Step / Distance / Calorie History** | ✅ Working | Daily activity metrics via CrRePa command `0x33` |
+| **Time Synchronization** | ✅ Working | Epoch timestamp sync via CrRePa command `0x31` (Big-Endian Unix format) |
+| **Timezone Sync** | ✅ Working | UTC offset alignment via CrRePa command `0xBB` |
+| **12h / 24h Time System Toggle** | ✅ Working | AM/PM / 24h mode via CrRePa command `0x17` |
+| **Watch Face Layout Overlay** | ✅ Working | Time/Date/Step overlay positioning via command `0x38` |
+| **ROM Built-in Face Switching** | ✅ Working | Switches factory ROM faces instantly via `cmd 0x19` / `cmd 0xB4 [35, index]` |
+| **Native RGB565 / RLE Renderer** | ✅ Working | `WatchFaceRenderer` renders 240x280 designs with CrRePa RLE compression (`[0x08, 0x21]`) |
+| **10 Fancy Watch Face Backgrounds** | ✅ Working | Minimal, Aurora, Fitness Rings, Cyberpunk, Classic Sport, Golden Hour, Deep Ocean, Cherry Blossom, Matrix, Luxury |
+| **Custom Photo Picker** | ✅ Working | Gallery photo upload with auto-scaling to 240x280 |
 
-| Feature | Status | Method |
-|---------|--------|--------|
-| Battery level | ✅ Working | Standard BLE Battery Service (0x180F) |
-| Heart rate history | ✅ Working | CrRepa cmd 0xAB — timestamped BPM readings |
-| Live heart rate | ✅ Working | Standard HR Measurement (0x2A37) — real-time BPM |
-| Step count | ✅ Working | CrRepa cmd 0x33 — steps, distance, calories |
-| Time sync | ✅ Working | CrRepa cmd 0x31 — BIG-ENDIAN Unix timestamp |
-| Timezone sync | ✅ Working | CrRepa cmd 0xBB — UTC offset in seconds |
-| Time format | ✅ Working | CrRePa cmd 0x17 — 12h/24h toggle |
-| Device info | ✅ Working | Standard BLE Device Information Service |
-| Watch faces | ✅ Working | CrRePa cmd 0xB4 — photo/video type switching |
-| Custom watch faces | ✅ Working | 8 built-in styles (Minimal, Gradient, Neon, etc.) |
-| Sleep data | ⚠️ Command confirmed | CrRePa cmd 0xBC — watch may have no sleep records |
+---
 
-## Hardware
+### ⚠️ What Needs Work / Known Issues
 
-- **Watch:** Noise ColorFit Icon 4
-- **Chipset:** CrRepa / Jieli CRP (Chinese BLE SoC)
-- **Manufacturer:** MOYOUNG (OEM)
-- **Firmware:** JLQFNHTK1.0
+#### Custom Watch Face Flash Transfer Engine (`uploadCustomWatchFace`)
+- **Symptom**: On-screen circular update animation reaches ~80% or fails to complete flash commit, and the background face does not switch.
+- **Root Cause**: The MCU on the Jieli CRP platform ([`com.crrepa.c1.d`](file:///home/vasu/Downloads/Exp/decompiled/sources/com/crrepa/c1/d.java)) uses a **watch-driven request-response handshake** over `cmd 0x6E` / `cmd 0x74` responses (`RX: 0x74/0x6E [FF, FF, offset_lo, offset_hi]`). When the app streams chunks blindly without waiting for offset acknowledgments, or misreads `0xFFFF` as a CRC failure, the MCU Flash SPI controller halts the transfer.
+- **To Be Done / Next Steps**:
+  1. **Implement Full Request-Response Chunk Loop**: Listen to `cmd 0x6E` / `cmd 0x74` responses from the watch and write chunks strictly when requested by the watch's offset pointer.
+  2. **Implement Native Jieli SDK via MethodChannel**: Integrate `libbmp_convert.so` and `com.jieli.bmp_convert.BmpConvert` directly from the decompiled APK via a native Android MethodChannel to match the official app's exact binary encoding.
 
-## Quick Start
+---
+
+## 🛠 Project Structure
+
+```
+colorfit_app/
+├── lib/
+│   ├── main.dart                      # App entry point & Riverpod configuration
+│   ├── core/
+│   │   ├── ble/
+│   │   │   └── bluetooth_service.dart # BLE connection, GATT MTU, packet guards, & transfer protocol
+│   │   ├── protocol/
+│   │   │   ├── constants.dart        # BLE UUIDs and CrRePa command opcodes
+│   │   │   └── parser.dart           # Binary packet builder & payload decoders
+│   │   ├── watchface/
+│   │   │   └── watch_face_renderer.dart # 240x280 RGB565 / RLE graphics engine & 10 preset designs
+│   │   ├── storage/
+│   │   │   └── data_storage.dart     # Shared preferences & metrics persistence
+│   │   └── theme/
+│   │       └── app_theme.dart        # Dark-mode UI styling
+│   └── features/
+│       ├── home/
+│       │   └── home_screen.dart      # Main dashboard & metric widgets
+│       ├── metrics/
+│       │   └── watch_faces_page.dart # Fancy watch face selector & photo picker
+│       ├── device/
+│       │   └── device_screen.dart    # Device connection & info panel
+│       └── settings/
+│           └── settings_screen.dart  # Time format, time sync & configuration
+```
+
+---
+
+## 🚀 How to Run & Build
 
 ### Prerequisites
+- Flutter 3.x SDK
+- Android SDK 21+ (Android 5.0 to 14+)
+- Device with Bluetooth Low Energy (BLE)
 
-- Linux with BlueZ 5.0+ (Ubuntu 20.04+, Fedora 30+, etc.)
-- Go 1.21+
-- Bluetooth adapter with BLE support
-
-### Build
-
+### Commands
 ```bash
-git clone https://github.com/yourusername/noise-watch-client.git
-cd noise-watch-client
-go build -o bin/noise-watch-client ./cmd/noise-watch-client/
+cd colorfit_app
+flutter pub get
+flutter run
+flutter build apk --debug
 ```
-
-### Find Your Watch's MAC Address
-
-```bash
-# Put your watch in pairing mode (open NoiseFit app → device settings → unpair)
-# Then scan:
-bluetoothctl scan on
-# Wait 15 seconds, then:
-bluetoothctl devices
-# Look for "ColorFit Icon 4" in the list
-```
-
-### Connect and Read Data
-
-```bash
-# Replace with your watch's MAC address
-bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX
-```
-
-Example output:
-
-```
-=== Noise ColorFit Watch Client ===
-Protocol: CrRepa (Jieli CRP chipset)
-
-Connecting to XX:XX:XX:XX:XX:XX...
-Discovered 9 services
-  Write char: fee2
-  Notify char: fee3
-Notifications enabled
-Connected! Reading sensor data...
-
-Battery: 90%
-Sending bond state...
-Requesting heart rate history...
-  Response cmd=0xAB payload=37 bytes
-  Heart Rate History (7 readings):
-    2026-07-27 05:53: 104 BPM
-    2026-07-27 05:54: 108 BPM
-    2026-07-28 00:56: 80 BPM
-    ...
-```
-
-### Enumerate GATT Services
-
-```bash
-bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX -enumerate
-```
-
-### Capture OTA Traffic
-
-Capture firmware update traffic for analysis:
-
-```bash
-bin/noise-watch-client -addr XX:XX:XX:XX:XX:XX -ota
-```
-
-Then initiate a firmware update from the NoiseFit app. The client will log all OTA packets to `ota_capture.log` for analysis.
-
-## Project Structure
-
-```
-noise-watch-client/
-├── cmd/
-│   └── noise-watch-client/   # Main CLI client
-│       └── main.go
-├── internal/
-│   ├── ble/                   # BLE client (tinygo.org/x/bluetooth)
-│   │   └── ble.go
-│   └── protocol/              # CrRepa protocol constants & parsing
-│       └── protocol.go
-├── proto/                     # Reconstructed protobuf schema (reference)
-│   └── noise.proto
-├── .private/                  # YOUR sensitive data (git-ignored)
-│   └── my-device.md
-├── PROTOCOL.md                # Full protocol documentation
-├── README.md                  # This file
-└── LICENSE                    # MIT License
-```
-
-## Protocol Overview
-
-The ColorFit Icon 4 uses the **CrRepa** protocol (Jieli/JLQ chipset). Communication is
-via BLE GATT with a custom packet format:
-
-```
-Packet: [FE] [EA] [flags] [length] [cmd] [payload...]
-  0xFE 0xEA  — magic header
-  flags      — 0x10 (MTU≤20) or 0x20 (normal)
-  length     — total packet length (including header)
-  cmd        — command type byte
-  payload    — command-specific data
-```
-
-### Key Commands
-
-| Cmd | Hex | Description |
-|-----|-----|-------------|
-| Today's Steps | 0x32 | Get current step count |
-| Today's HR | 0x37 | Get today's heart rate |
-| HR History | 0xAB | Get historical HR readings |
-| Sleep Data | 0xBC | Get sleep stages |
-| Device Version | 0x2E | Get firmware info |
-| Time Sync | 0x31 | Set watch time |
-| Bond State | 0x81 | Pairing handshake |
-
-### BLE Characteristics
-
-| UUID | Role |
-|------|------|
-| fee2 | Write (phone → watch) |
-| fee3 | Notify (watch → phone) |
-| 2a19 | Battery level (standard) |
-| 2a37 | Heart rate measurement (standard) |
-
-See [PROTOCOL.md](PROTOCOL.md) for the full protocol specification.
-
-## How It Was Reverse-Engineered
-
-1. **APK Decompilation:** Decompile the NoiseFit Android app with jadx to extract
-   BLE UUIDs, command structures, and data models from `cn.appscomm.bluetooth` and
-   `com.crrepa` packages.
-
-2. **Live GATT Enumeration:** Connect to the watch directly from Linux via BLE and
-   enumerate all services/characteristics to confirm UUIDs.
-
-3. **Protocol Testing:** Send commands to the watch and parse responses to validate
-   the packet format and command types.
-
-4. **Cross-Reference:** Match decompiled Java code against live responses to build
-   a complete protocol specification.
-
-### Tools Used
-
-- [jadx](https://github.com/skylot/jadx) — APK decompiler
-- [tinygo.org/x/bluetooth](https://pkg.go.dev/tinygo.org/x/bluetooth) — Go BLE library
-- [Wireshark](https://www.wireshark.org/) — BLE packet analysis
-- `bluetoothctl` — Linux Bluetooth management
-
-## Limitations
-
-- **Single connection:** BLE only allows one connection at a time. Disconnect from
-  the NoiseFit app before using this client.
-- **Linux only:** Uses BlueZ D-Bus interface. macOS and Windows are not supported
-  by the tinygo bluetooth library.
-- **No encryption:** The CrRepa protocol does not appear to use BLE pairing encryption
-  for data commands. This means any nearby BLE device could theoretically sniff the traffic.
-- **Partial protocol:** Step and sleep command formats are confirmed but response
-  parsing is still being developed.
-
-## Contributing
-
-Contributions are welcome! Areas that need work:
-
-- [ ] Parse step count response (cmd 0x32)
-- [ ] Parse sleep data response (cmd 0xBC)
-- [ ] Implement live heart rate streaming (0x2A37 notifications)
-- [ ] Add command-line options for specific data queries
-- [ ] Write tests for protocol parsing
-- [ ] Support macOS/Windows via alternative BLE libraries
-- [ ] Analyze captured OTA traffic and document firmware format
-- [ ] Implement OTA firmware extraction from captured data
-
-## Privacy & Security
-
-This project communicates directly with your watch over BLE. **No data is sent to
-any server.** All processing happens locally on your machine.
-
-The watch's BLE protocol does not appear to use encryption, so nearby devices could
-theoretically observe the traffic. This is a limitation of the watch firmware, not
-this software.
-
-## License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- Reverse-engineering the NoiseFit APK protocol
-- The CrRepa/Jieli CRP BLE chipset documentation community
-- [tinygo.org/x/bluetooth](https://pkg.go.dev/tinygo.org/x/bluetooth) for the Go BLE library

@@ -6,6 +6,8 @@ import 'features/home/home_screen.dart';
 import 'features/device/device_screen.dart';
 import 'features/settings/settings_screen.dart';
 
+import 'core/providers/ble_provider.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DataStorage().init();
@@ -26,15 +28,23 @@ class ColorFitApp extends StatelessWidget {
   }
 }
 
-class MainScreen extends StatefulWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(bleServiceProvider).tryAutoConnect();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

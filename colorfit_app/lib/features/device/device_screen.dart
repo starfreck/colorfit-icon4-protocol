@@ -8,6 +8,7 @@ import '../../core/widgets/shadcn_card.dart';
 import '../../core/widgets/shadcn_button.dart';
 import '../../core/widgets/shadcn_avatar.dart';
 import '../../core/providers/ble_provider.dart';
+import '../../core/storage/data_storage.dart';
 import '../../core/ble/bluetooth_service.dart' as ble;
 
 class DeviceScreen extends ConsumerStatefulWidget {
@@ -18,6 +19,7 @@ class DeviceScreen extends ConsumerStatefulWidget {
 }
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
+  final DataStorage _storage = DataStorage();
   List<ScanResult> _scanResults = [];
   bool _isScanning = false;
   bool _hasPermissions = false;
@@ -93,8 +95,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       }
     });
 
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 12));
-    await Future.delayed(const Duration(seconds: 12));
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+    await Future.delayed(const Duration(seconds: 10));
     await FlutterBluePlus.stopScan();
 
     if (mounted) {
@@ -114,7 +116,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     final serviceUuids = result.advertisementData.serviceUuids;
     for (final uuid in serviceUuids) {
       final uuidStr = uuid.toString().toLowerCase();
-      if (uuidStr.contains('fee2') || uuidStr.contains('fee3') || uuidStr.contains('fee5')) {
+      if (uuidStr.contains('fee2') || uuidStr.contains('fee3') || uuidStr.contains('fee5') || uuidStr.contains('fee0')) {
         return true;
       }
     }
@@ -130,15 +132,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     return false;
   }
 
-  Future<void> _connectToDevice(BluetoothDevice device) async {
+  Future<void> _connectToAddress(String address, [String? deviceName]) async {
     try {
       final service = ref.read(bleServiceProvider);
-      await service.connect(device.remoteId.str);
+      await service.connect(address);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Connected to ${device.platformName}'),
+            content: Text('Connected to ${deviceName ?? "watch"}'),
             backgroundColor: AppTheme.chart3,
           ),
         );
@@ -162,7 +164,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.card,
         title: const Text('Disconnect Watch', style: TextStyle(color: AppTheme.foreground)),
-        content: const Text('Are you sure you want to disconnect?',
+        content: const Text('Are you sure you want to disconnect from your watch?',
             style: TextStyle(color: AppTheme.mutedForeground)),
         actions: [
           TextButton(
@@ -189,10 +191,63 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     }
   }
 
+  Future<void> _forgetDevice() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        title: const Text('Forget Watch', style: TextStyle(color: AppTheme.foreground)),
+        content: const Text('This will remove the saved watch session. You will need to scan and pair again.',
+            style: TextStyle(color: AppTheme.mutedForeground)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: AppTheme.mutedForeground)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Forget', style: TextStyle(color: AppTheme.destructive)),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      final service = ref.read(bleServiceProvider);
+      await service.forgetDevice();
+      setState(() {});
+      if (mounted) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Watch session forgotten'),
+          backgroundColor: AppTheme.mutedForeground,
+        ));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final connectionState = ref.watch(connectionStateProvider);
     final isConnected = connectionState.valueOrNull == ble.ConnectionState.connected;
+    final isConnecting = connectionState.valueOrNull == ble.ConnectionState.connecting;
+    final bleService = ref.watch(bleServiceProvider);
+    
+    final savedAddress = _storage.getDeviceAddress();
+    final savedName = _storage.getDeviceName() ?? 'ColorFit Icon 4';
+    final currentAddress = bleService.currentDeviceAddress ?? savedAddress;
+    final currentName = bleService.currentDeviceName ?? savedName;
+
+    // Filter out the connected/saved device from the available devices scan list
+    final availableDevices = _scanResults.where((r) {
+      final devAddress = r.device.remoteId.str.toLowerCase();
+      if (isConnected && currentAddress != null) {
+        if (devAddress == currentAddress.toLowerCase()) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
 
     return Scaffold(
       body: SafeArea(
@@ -211,8 +266,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.foreground)),
                       const SizedBox(height: 4),
                       Text(
-                        isConnected ? 'Connected to watch' : 'Connect to your watch',
-                        style: TextStyle(fontSize: 14, color: isConnected ? AppTheme.chart3 : AppTheme.mutedForeground),
+                        isConnected
+                            ? 'Connected to watch'
+                            : (isConnecting ? 'Connecting...' : 'Manage your device connection'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isConnected
+                              ? AppTheme.chart3
+                              : (isConnecting ? AppTheme.chart5 : AppTheme.mutedForeground),
+                        ),
                       ),
                     ],
                   ),
@@ -236,22 +298,25 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               ),
               const SizedBox(height: 24),
 
+              // Connected Device Section
               if (isConnected) ...[
-                const Text('Connected',
+                const Text('Connected Device',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.foreground)),
                 const SizedBox(height: 8),
                 ShadcnCard(
                   child: Row(
                     children: [
-                      const ShadcnAvatar(child: Icon(Icons.watch, size: 20)),
+                      const ShadcnAvatar(child: Icon(Icons.watch, size: 20, color: AppTheme.chart3)),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('ColorFit Icon 4',
-                                style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.foreground)),
-                            Text('Connected', style: TextStyle(fontSize: 12, color: AppTheme.chart3)),
+                            Text(currentName,
+                                style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.foreground)),
+                            const SizedBox(height: 2),
+                            Text('Active • ${currentAddress ?? ""}',
+                                style: const TextStyle(fontSize: 12, color: AppTheme.chart3)),
                           ],
                         ),
                       ),
@@ -265,20 +330,73 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+              ] else if (savedAddress != null && savedAddress.isNotEmpty) ...[
+                // Saved Session (when disconnected)
+                const Text('Saved Watch Session',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.foreground)),
+                const SizedBox(height: 8),
+                ShadcnCard(
+                  child: Row(
+                    children: [
+                      const ShadcnAvatar(child: Icon(Icons.watch, size: 20)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(savedName,
+                                style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.foreground)),
+                            const SizedBox(height: 2),
+                            Text(isConnecting ? 'Connecting...' : savedAddress,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isConnecting ? AppTheme.chart5 : AppTheme.mutedForeground,
+                                )),
+                          ],
+                        ),
+                      ),
+                      if (isConnecting)
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.chart5),
+                        )
+                      else ...[
+                        ShadcnButton(
+                          onPressed: () => _connectToAddress(savedAddress, savedName),
+                          variant: ButtonVariant.default$,
+                          size: ButtonSize.sm,
+                          child: const Text('Connect'),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18, color: AppTheme.mutedForeground),
+                          tooltip: 'Forget Watch',
+                          onPressed: _forgetDevice,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
               ],
 
-              if (_scanResults.isNotEmpty) ...[
-                Text('Available (${_scanResults.length})',
+              // Available Devices Section (Filtered to never show already connected device)
+              if (availableDevices.isNotEmpty) ...[
+                Text('Available Devices (${availableDevices.length})',
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.foreground)),
                 const SizedBox(height: 8),
                 Expanded(
                   child: ListView.builder(
-                    itemCount: _scanResults.length,
+                    itemCount: availableDevices.length,
                     itemBuilder: (context, index) {
-                      final result = _scanResults[index];
+                      final result = availableDevices[index];
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: _DeviceTile(result: result, onTap: () => _connectToDevice(result.device)),
+                        child: _DeviceTile(
+                          result: result,
+                          onTap: () => _connectToAddress(result.device.remoteId.str, result.device.platformName),
+                        ),
                       );
                     },
                   ),
@@ -290,20 +408,36 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                          isConnected ? Icons.check_circle_outline : Icons.bluetooth_searching,
                           size: 48,
                           color: isConnected ? AppTheme.chart3 : AppTheme.muted,
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          isConnected ? 'Watch connected' : 'No devices found',
-                          style: const TextStyle(color: AppTheme.mutedForeground, fontSize: 14),
+                          isConnected ? 'Watch connected and active' : 'No other devices found',
+                          style: const TextStyle(color: AppTheme.mutedForeground, fontSize: 14, fontWeight: FontWeight.w500),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Text(
-                          isConnected ? 'Data is syncing...' : 'Make sure your watch is nearby',
+                          isConnected
+                              ? 'Your ColorFit Icon 4 is paired and ready'
+                              : 'Tap Scan to search for nearby Bluetooth devices',
                           style: const TextStyle(color: AppTheme.muted, fontSize: 12),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(strokeWidth: 2, color: AppTheme.chart1),
+                        SizedBox(height: 16),
+                        Text('Scanning for ColorFit devices...',
+                            style: TextStyle(color: AppTheme.mutedForeground, fontSize: 14)),
                       ],
                     ),
                   ),

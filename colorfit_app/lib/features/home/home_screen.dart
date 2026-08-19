@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
@@ -28,15 +29,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isSyncing = false;
   bool _hasMounted = true;
 
+  Timer? _syncTimer;
+
   @override
   void initState() {
     super.initState();
     _loadFromStorage();
+    _syncTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      if (_hasMounted && ref.read(connectionStateProvider).valueOrNull == ble.ConnectionState.connected) {
+        _syncData();
+      }
+    });
   }
 
   @override
   void dispose() {
     _hasMounted = false;
+    _syncTimer?.cancel();
     super.dispose();
   }
 
@@ -58,18 +67,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
-  void _startPeriodicSync() {
-    Future.delayed(const Duration(seconds: 30), () {
-      if (_hasMounted && ref.read(connectionStateProvider).valueOrNull == ble.ConnectionState.connected) {
-        _syncData().then((_) => _startPeriodicSync());
-      }
-    });
-  }
 
   Future<void> _syncData() async {
     if (_isSyncing) return;
     final service = ref.read(bleServiceProvider);
-    if (!service.isReady) return;
+    if (!service.isReady || service.isTransferringWatchFace) return;
     setState(() => _isSyncing = true);
     try {
       await service.readBattery();
@@ -87,6 +89,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } finally {
       if (_hasMounted) setState(() => _isSyncing = false);
     }
+  }
+
+  Future<void> _onRefresh() async {
+    await _syncData();
+    await Future.delayed(const Duration(milliseconds: 500));
   }
 
   Future<void> _requestData() async {
@@ -145,6 +152,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final connectionState = ref.watch(connectionStateProvider);
     final isConnected = connectionState.valueOrNull == ble.ConnectionState.connected;
+    final isConnecting = connectionState.valueOrNull == ble.ConnectionState.connecting;
+    final bleService = ref.watch(bleServiceProvider);
+    final savedAddress = _storage.getDeviceAddress();
+    final deviceName = bleService.currentDeviceName ?? _storage.getDeviceName() ?? 'ColorFit Icon 4';
     final healthAsync = ref.watch(healthDataProvider);
 
     healthAsync.whenData((data) {
@@ -156,7 +167,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     if (isConnected && !_hasRequestedData) {
       _requestData();
-      _startPeriodicSync();
     }
 
     final batteryLevel = _healthData.batteryLevel;
@@ -169,7 +179,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _syncData,
+          onRefresh: _onRefresh,
           child: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
@@ -178,29 +188,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('ColorFit Icon 4',
-                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.foreground)),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Container(width: 8, height: 8,
-                                  decoration: BoxDecoration(shape: BoxShape.circle,
-                                      color: isConnected ? AppTheme.chart3 : AppTheme.destructive)),
-                              const SizedBox(width: 6),
-                              Text(isConnected ? 'Connected' : 'Disconnected',
-                                  style: TextStyle(fontSize: 14,
-                                      color: isConnected ? AppTheme.chart3 : AppTheme.mutedForeground)),
-                              if (_isSyncing) ...[
-                                const SizedBox(width: 8),
-                                const SizedBox(width: 12, height: 12,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.chart1)),
-                              ],
-                            ],
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(deviceName,
+                                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.foreground)),
+                            const SizedBox(height: 4),
+                            GestureDetector(
+                              onTap: () {
+                                if (!isConnected && !isConnecting && savedAddress != null && savedAddress.isNotEmpty) {
+                                  ref.read(bleServiceProvider).tryAutoConnect();
+                                }
+                              },
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: isConnected
+                                          ? AppTheme.chart3
+                                          : (isConnecting ? AppTheme.chart5 : AppTheme.destructive),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    isConnected
+                                        ? 'Connected'
+                                        : (isConnecting
+                                            ? 'Connecting...'
+                                            : (savedAddress != null ? 'Disconnected (Tap to connect)' : 'Disconnected')),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isConnected
+                                          ? AppTheme.chart3
+                                          : (isConnecting ? AppTheme.chart5 : AppTheme.mutedForeground),
+                                    ),
+                                  ),
+                                  if (_isSyncing) ...[
+                                    const SizedBox(width: 8),
+                                    const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.chart1),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       Row(
                         children: [
@@ -208,10 +247,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ShadcnBadge(text: '$batteryLevel%', variant: BadgeVariant.secondary),
                           const SizedBox(width: 8),
                           GestureDetector(
-                            onTap: isConnected ? _showDisconnectDialog : null,
+                            onTap: () {
+                              if (isConnected) {
+                                _showDisconnectDialog();
+                              } else if (!isConnecting && savedAddress != null && savedAddress.isNotEmpty) {
+                                ref.read(bleServiceProvider).tryAutoConnect();
+                              }
+                            },
                             child: ShadcnAvatar(
-                              child: Icon(isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                                  size: 20, color: isConnected ? AppTheme.chart3 : AppTheme.mutedForeground),
+                              child: isConnecting
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.chart5),
+                                    )
+                                  : Icon(
+                                      isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                                      size: 20,
+                                      color: isConnected
+                                          ? AppTheme.chart3
+                                          : (savedAddress != null ? AppTheme.chart5 : AppTheme.mutedForeground),
+                                    ),
                             ),
                           ),
                         ],

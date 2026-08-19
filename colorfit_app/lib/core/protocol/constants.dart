@@ -26,6 +26,7 @@ class ProtocolConstants {
   static const int cmdBondState = 0x81;
   static const int cmdTimezone = 0xBB;
   static const int cmdWatchFace = 0xB4;
+  static const int cmdDisplayWatchFace = 0x19;
   static const int cmdTimeSystemQuery = 0x27;
   static const int cmdTimeSystemSet = 0x17;
 }

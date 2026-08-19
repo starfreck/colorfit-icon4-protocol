@@ -95,26 +95,36 @@ class ProtocolParser {
     return (bpm: bpm, rrInterval: rrInterval);
   }
   
-  /// Build time sync packet (with timezone adjustment)
+  /// Build time sync packet (with timezone adjustment matching z1.java)
   static List<int> buildTimeSync(DateTime time) {
-    // Convert to UTC first
-    final utc = time.toUtc();
-    final ts = utc.millisecondsSinceEpoch ~/ 1000;
+    // The CrRePa firmware internal RTC treats sync timestamps as China Standard Time (GMT+8).
+    // Exactly matches decompiled z1.java:
+    // Convert the local date/time fields to UTC representation minus 8 hours,
+    // so when the watch interprets it in GMT+8, it displays the user's exact local wall-clock time.
+    final localTimeAsUtc = DateTime.utc(
+      time.year,
+      time.month,
+      time.day,
+      time.hour,
+      time.minute,
+      time.second,
+    );
+    final ts = (localTimeAsUtc.millisecondsSinceEpoch ~/ 1000) - (8 * 3600);
     final payload = [
       (ts >> 24) & 0xFF,
       (ts >> 16) & 0xFF,
       (ts >> 8) & 0xFF,
       ts & 0xFF,
-      8, // day of week constant
+      8, // day of week constant (confirmed from z1.java)
     ];
     return buildPacket(ProtocolConstants.cmdTimeSync, payload);
   }
   
-  /// Build timezone sync packet
+  /// Build timezone sync packet (confirmed from z1.java c())
   static List<int> buildTimezoneSync(DateTime time) {
     final offsetSeconds = time.timeZoneOffset.inSeconds;
     final payload = [
-      7, // constant
+      7, // constant from z1.java
       0,
       offsetSeconds & 0xFF,
       (offsetSeconds >> 8) & 0xFF,
@@ -129,11 +139,39 @@ class ProtocolParser {
     return buildPacket(ProtocolConstants.cmdTimeSystemQuery, []);
   }
   
-  /// Build set time system packet (0=12h, 1=24h)
+  /// Build set time system packet (0=12h, 1=24h - confirmed from CRPTimeSystemType.java & z1.java)
   static List<int> buildSetTimeSystem(bool is24Hour) {
     return buildPacket(ProtocolConstants.cmdTimeSystemSet, [is24Hour ? 1 : 0]);
   }
   
+  /// Build switch display watch face packet (cmd 0x19 - confirmed from s2.java b(int) & a.java sendDisplayWatchFace)
+  static List<int> buildSwitchDisplayWatchFace(int index) {
+    return buildPacket(ProtocolConstants.cmdDisplayWatchFace, [index]);
+  }
+
+  /// Build Jieli watch face ID switch packet (cmd 0xB4, sub-cmd 17 - confirmed from s2.java a(int, boolean))
+  static List<int> buildJieliWatchFaceId(int id, {bool enable = true}) {
+    final high = (id >> 8) & 0xFF;
+    final low = id & 0xFF;
+    return buildPacket(ProtocolConstants.cmdWatchFace, enable ? [17, high, low, 1] : [17, high, low]);
+  }
+
+  /// Build watch face layout packet (cmd 0x38 - confirmed from d2.java a(CRPWatchFaceLayoutInfo))
+  static List<int> buildWatchFaceLayout({
+    int timePosition = 0,
+    int timeTopContent = 1,
+    int timeBottomContent = 2,
+    int textColor = 0xFFFF,
+  }) {
+    final payload = List<int>.filled(37, 0);
+    payload[0] = timePosition;
+    payload[1] = timeTopContent;
+    payload[2] = timeBottomContent;
+    payload[3] = (textColor >> 8) & 0xFF;
+    payload[4] = textColor & 0xFF;
+    return buildPacket(0x38, payload);
+  }
+
   /// Build bond state packet
   static List<int> buildBondState(bool bound) {
     return buildPacket(ProtocolConstants.cmdBondState, [4, bound ? 1 : 0]);

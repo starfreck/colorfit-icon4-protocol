@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../core/protocol/parser.dart';
 import '../../core/providers/ble_provider.dart';
 import '../../core/watchface/watch_face_renderer.dart';
 
@@ -17,7 +16,10 @@ class WatchFacesPage extends ConsumerStatefulWidget {
 class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
   int _selectedIndex = 0;
   bool _isLoading = false;
+  double _uploadProgress = 0.0;
+  String _statusText = 'Apply';
   Uint8List? _previewBytes;
+  Uint8List? _customPhotoBytes;
 
   @override
   void initState() {
@@ -29,8 +31,8 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
     final bytes = await WatchFaceRenderer.renderToPng(
       style: defaultWatchFaces[_selectedIndex],
       time: DateTime.now(),
-      width: 300,
-      height: 300,
+      width: 240,
+      height: 280,
       healthData: {'steps': 8432, 'bpm': 72, 'battery': 85},
     );
     if (mounted) setState(() => _previewBytes = bytes);
@@ -56,10 +58,11 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: Container(
-                width: 280,
+                width: 240,
                 height: 280,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
+                  color: const Color(0xFF1A1A1A),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: const Color(0xFF2A2A2A), width: 2),
                 ),
                 clipBehavior: Clip.antiAlias,
@@ -76,11 +79,11 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Built-in Faces', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey)),
+                Text('Custom & Built-in Designs', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey)),
                 TextButton.icon(
                   onPressed: _pickImage,
                   icon: const Icon(Icons.add_photo_alternate, size: 18, color: Color(0xFF1DB954)),
-                  label: Text('Custom', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1DB954))),
+                  label: Text('Photo', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1DB954))),
                 ),
               ],
             ),
@@ -99,16 +102,17 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
               ),
               itemCount: defaultWatchFaces.length,
               itemBuilder: (context, index) {
-                final face = defaultWatchFaces[index];
-                final isSelected = _selectedIndex == index;
+                final isSelected = _selectedIndex == index && _customPhotoBytes == null;
                 return GestureDetector(
                   onTap: () {
-                    setState(() => _selectedIndex = index);
+                    setState(() {
+                      _selectedIndex = index;
+                      _customPhotoBytes = null;
+                    });
                     _renderPreview();
                   },
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A1A),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: isSelected ? const Color(0xFF1DB954) : const Color(0xFF2A2A2A),
@@ -116,18 +120,24 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
                       ),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Expanded(
-                          child: _FaceThumbnail(style: face),
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                            child: _FaceThumbnail(style: defaultWatchFaces[index]),
+                          ),
                         ),
                         Padding(
                           padding: const EdgeInsets.all(8),
-                          child: Column(
-                            children: [
-                              Text(face.name, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
-                              const SizedBox(height: 2),
-                              Text(face.description, style: GoogleFonts.inter(fontSize: 10, color: Colors.grey)),
-                            ],
+                          child: Text(
+                            defaultWatchFaces[index].name,
+                            style: GoogleFonts.inter(
+                              color: isSelected ? const Color(0xFF1DB954) : Colors.white,
+                              fontSize: 12,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ],
@@ -141,20 +151,33 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
           // Apply button
           Padding(
             padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _applyWatchFace,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1DB954),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            child: Column(
+              children: [
+                if (_isLoading) ...[
+                  LinearProgressIndicator(
+                    value: _uploadProgress > 0 ? _uploadProgress : null,
+                    backgroundColor: const Color(0xFF2A2A2A),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1DB954)),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _applyWatchFace,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1DB954),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: _isLoading
+                        ? Text(_statusText, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15))
+                        : Text('Apply to Watch', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 16)),
+                  ),
                 ),
-                child: _isLoading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text('Apply', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 16)),
-              ),
+              ],
             ),
           ),
         ],
@@ -166,9 +189,13 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery, maxWidth: 400, maxHeight: 400);
     if (image != null) {
-      setState(() => _previewBytes = null);
       final bytes = await image.readAsBytes();
-      if (mounted) setState(() => _previewBytes = bytes);
+      if (mounted) {
+        setState(() {
+          _customPhotoBytes = bytes;
+          _previewBytes = bytes;
+        });
+      }
     }
   }
 
@@ -183,17 +210,45 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _uploadProgress = 0.0;
+      _statusText = 'Preparing design...';
+    });
 
     try {
-      // Send photo watch face type (type=1)
-      await service.sendPacket(ProtocolParser.buildSwitchWatchFace(1));
-      await Future.delayed(const Duration(milliseconds: 500));
+      Uint8List rgb565;
+      if (_customPhotoBytes != null) {
+        setState(() => _statusText = 'Processing photo...');
+        rgb565 = await WatchFaceRenderer.convertImageToRGB565(_customPhotoBytes!, 240, 280);
+      } else {
+        setState(() => _statusText = 'Rendering ${defaultWatchFaces[_selectedIndex].name}...');
+        rgb565 = await WatchFaceRenderer.renderToRGB565(
+          style: defaultWatchFaces[_selectedIndex],
+          time: DateTime.now(),
+          width: 240,
+          height: 280,
+          healthData: {'steps': 8432, 'bpm': 72, 'battery': 85},
+        );
+      }
+
+      setState(() => _statusText = 'Uploading to watch...');
+      await service.uploadCustomWatchFace(
+        rgb565,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _uploadProgress = progress;
+              _statusText = 'Transferring ${(progress * 100).toInt()}%';
+            });
+          }
+        },
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${defaultWatchFaces[_selectedIndex].name} watch face applied'),
+            content: Text('${defaultWatchFaces[_selectedIndex].name} transferred & applied to watch!'),
             backgroundColor: const Color(0xFF1DB954),
           ),
         );
@@ -205,7 +260,13 @@ class _WatchFacesPageState extends ConsumerState<WatchFacesPage> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusText = 'Apply';
+          _uploadProgress = 0.0;
+        });
+      }
     }
   }
 }
@@ -217,7 +278,7 @@ class _FaceThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(8),
+      margin: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: style.backgroundColor,
         borderRadius: BorderRadius.circular(12),
@@ -237,16 +298,16 @@ class _FaceThumbnail extends StatelessWidget {
               '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
               style: TextStyle(
                 color: style.timeColor,
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: style.timeFontWeight,
                 letterSpacing: style.timeLetterSpacing,
               ),
             ),
-            if (style.showDate)
-              Text(
-                '${DateTime.now().day}',
-                style: TextStyle(color: style.dateColor, fontSize: 10),
-              ),
+            const SizedBox(height: 4),
+            Text(
+              '${DateTime.now().day}',
+              style: TextStyle(color: style.dateColor, fontSize: 9),
+            ),
           ],
         ),
       ),

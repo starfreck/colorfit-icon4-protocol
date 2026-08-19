@@ -25,6 +25,104 @@ class WatchFaceRenderer {
     return byteData!.buffer.asUint8List();
   }
 
+  /// Render watch face design directly into watch-native compressed buffer (RLE RGB565)
+  static Future<Uint8List> renderToRGB565({
+    required WatchFaceStyle style,
+    required DateTime time,
+    required int width,
+    required int height,
+    Map<String, dynamic>? healthData,
+  }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
+
+    _drawBackground(canvas, style, width.toDouble(), height.toDouble());
+    _drawTime(canvas, style, time, width.toDouble(), height.toDouble());
+    if (style.showDate) _drawDate(canvas, style, time, width.toDouble(), height.toDouble());
+    if (style.showHealth) _drawHealth(canvas, style, healthData, width.toDouble(), height.toDouble());
+    if (style.showComplications) _drawComplications(canvas, style, time, healthData, width.toDouble(), height.toDouble());
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width, height);
+    final rawByteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (rawByteData == null) throw Exception('Failed to get raw RGBA bytes');
+
+    return encodeWatchFaceBitmap(rawByteData.buffer.asUint8List(), width, height);
+  }
+
+  /// Convert an arbitrary image into watch-native compressed buffer (RLE RGB565)
+  static Future<Uint8List> convertImageToRGB565(Uint8List imageBytes, int targetWidth, int targetHeight) async {
+    final codec = await ui.instantiateImageCodec(imageBytes, targetWidth: targetWidth, targetHeight: targetHeight);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    final rawByteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (rawByteData == null) throw Exception('Failed to convert image');
+
+    return encodeWatchFaceBitmap(rawByteData.buffer.asUint8List(), targetWidth, targetHeight);
+  }
+
+  /// Encodes raw RGBA bytes into CrRePa native RLE format (up to 90% bandwidth reduction)
+  static Uint8List encodeWatchFaceBitmap(Uint8List rgba, int width, int height) {
+    final rawRgb565 = Uint8List(width * height * 2);
+    final rleColors = <int>[];
+    final rleCounts = <int>[];
+
+    int rawIndex = 0;
+    int prevColor = -1;
+    int runLength = 0;
+
+    for (int i = 0; i < rgba.length; i += 4) {
+      final r = rgba[i];
+      final g = rgba[i + 1];
+      final b = rgba[i + 2];
+
+      final r5 = (r >> 3) & 0x1F;
+      final g6 = (g >> 2) & 0x3F;
+      final b5 = (b >> 3) & 0x1F;
+      int color16 = (r5 << 11) | (g6 << 5) | b5;
+      if (color16 == 2081) color16++;
+
+      rawRgb565[rawIndex++] = (color16 >> 8) & 0xFF;
+      rawRgb565[rawIndex++] = color16 & 0xFF;
+
+      if (i == 0) {
+        prevColor = color16;
+        runLength = 1;
+      } else {
+        if (color16 != prevColor || runLength == 255) {
+          rleColors.add(prevColor);
+          rleCounts.add(runLength);
+          prevColor = color16;
+          runLength = 1;
+        } else {
+          runLength++;
+        }
+      }
+    }
+
+    if (runLength > 0) {
+      rleColors.add(prevColor);
+      rleCounts.add(runLength);
+    }
+
+    final rleSize = (rleColors.length * 3) + 2;
+    if (rleSize < rawRgb565.length) {
+      final rleBytes = Uint8List(rleSize);
+      rleBytes[0] = 8;
+      rleBytes[1] = 33;
+      int rleIdx = 2;
+      for (int k = 0; k < rleColors.length; k++) {
+        final c = rleColors[k];
+        rleBytes[rleIdx++] = (c >> 8) & 0xFF;
+        rleBytes[rleIdx++] = c & 0xFF;
+        rleBytes[rleIdx++] = rleCounts[k] & 0xFF;
+      }
+      return rleBytes;
+    }
+
+    return rawRgb565;
+  }
+
   static void _drawBackground(Canvas canvas, WatchFaceStyle style, double w, double h) {
     final paint = Paint();
     switch (style.backgroundType) {
@@ -233,85 +331,129 @@ class WatchFaceStyle {
 }
 
 final List<WatchFaceStyle> defaultWatchFaces = [
+  // 1. Elegant Minimal — clean black with thin white time
   const WatchFaceStyle(
     name: 'Minimal',
-    description: 'Clean and simple',
+    description: 'Clean and elegant',
     backgroundType: BackgroundType.solid,
     backgroundColor: Colors.black,
     timeColor: Colors.white,
     timeFontWeight: FontWeight.w100,
     timeFontSize: 72,
     dateColor: Colors.white54,
+    showHealth: false,
+    showComplications: false,
   ),
+  // 2. Aurora — purple-teal northern lights gradient
   const WatchFaceStyle(
-    name: 'Gradient',
-    description: 'Smooth dark gradient',
+    name: 'Aurora',
+    description: 'Northern lights glow',
     backgroundType: BackgroundType.gradient,
-    gradientColors: [Color(0xFF0f0c29), Color(0xFF302b63), Color(0xFF24243e)],
-    timeColor: Colors.white,
+    gradientColors: [Color(0xFF0D001A), Color(0xFF1A0033), Color(0xFF00332E), Color(0xFF001A0D)],
+    gradientStart: Alignment.topLeft,
+    gradientEnd: Alignment.bottomRight,
+    timeColor: Color(0xFFE0B0FF),
     timeFontWeight: FontWeight.w200,
     timeFontSize: 68,
+    dateColor: Color(0xFF80CBC4),
   ),
+  // 3. Fitness Rings — Apple Watch-inspired
   const WatchFaceStyle(
-    name: 'Neon',
-    description: 'Vibrant neon glow',
-    backgroundType: BackgroundType.solid,
-    backgroundColor: Color(0xFF0a0a0a),
-    timeColor: Color(0xFF00FF88),
-    timeFontWeight: FontWeight.w300,
-    timeFontSize: 64,
-    dateColor: Color(0xFF00FF88),
-  ),
-  const WatchFaceStyle(
-    name: 'Activity Rings',
-    description: 'Apple Watch style rings',
+    name: 'Fitness Rings',
+    description: 'Activity ring tracker',
     backgroundType: BackgroundType.rings,
     timeColor: Colors.white,
     timeFontWeight: FontWeight.w200,
-    timeFontSize: 56,
-    timePositionY: 140,
-    datePositionY: 195,
+    timeFontSize: 48,
+    timePositionY: 108,
+    datePositionY: 160,
+    showHealth: true,
   ),
+  // 4. Neon Cyberpunk — hot cyan on deep dark
   const WatchFaceStyle(
-    name: 'Bold',
-    description: 'Thick and impactful',
+    name: 'Cyberpunk',
+    description: 'Neon future vibes',
     backgroundType: BackgroundType.gradient,
-    gradientColors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
+    gradientColors: [Color(0xFF0a0014), Color(0xFF0a001a), Color(0xFF140028)],
+    timeColor: Color(0xFF00FFFF),
+    timeFontWeight: FontWeight.w300,
+    timeFontSize: 64,
+    dateColor: Color(0xFFFF00FF),
+    showHealth: true,
+  ),
+  // 5. Classic Sport — bold white on dark blue
+  const WatchFaceStyle(
+    name: 'Classic Sport',
+    description: 'Bold athletic look',
+    backgroundType: BackgroundType.gradient,
+    gradientColors: [Color(0xFF0D1B2A), Color(0xFF1B2838), Color(0xFF1B3A4B)],
     timeColor: Colors.white,
     timeFontWeight: FontWeight.w900,
-    timeFontSize: 80,
+    timeFontSize: 76,
     timeLetterSpacing: -2,
-    dateColor: Colors.white38,
+    dateColor: Color(0xFF4FC3F7),
+    showHealth: true,
   ),
+  // 6. Golden Hour — warm amber sunset
   const WatchFaceStyle(
-    name: 'Sunset',
-    description: 'Warm orange gradient',
+    name: 'Golden Hour',
+    description: 'Warm sunset glow',
     backgroundType: BackgroundType.gradient,
-    gradientColors: [Color(0xFF1a0a00), Color(0xFF4a1a00)],
-    timeColor: Color(0xFFFF8C42),
+    gradientColors: [Color(0xFF1a0800), Color(0xFF331500), Color(0xFF4D2200)],
+    gradientStart: Alignment.topCenter,
+    gradientEnd: Alignment.bottomCenter,
+    timeColor: Color(0xFFFFB74D),
     timeFontWeight: FontWeight.w200,
-    timeFontSize: 66,
-    dateColor: Color(0xFFFF8C42),
-  ),
-  const WatchFaceStyle(
-    name: 'Ocean',
-    description: 'Deep blue waves',
-    backgroundType: BackgroundType.gradient,
-    gradientColors: [Color(0xFF000428), Color(0xFF004e92)],
-    timeColor: Colors.white,
-    timeFontWeight: FontWeight.w100,
     timeFontSize: 70,
-    dateColor: Colors.white60,
+    dateColor: Color(0xFFFFCC80),
   ),
+  // 7. Deep Ocean — dark navy to teal
   const WatchFaceStyle(
-    name: 'Digital',
-    description: 'Retro digital display',
+    name: 'Deep Ocean',
+    description: 'Underwater calm',
+    backgroundType: BackgroundType.gradient,
+    gradientColors: [Color(0xFF000814), Color(0xFF001D3D), Color(0xFF003566)],
+    timeColor: Color(0xFFB2DFDB),
+    timeFontWeight: FontWeight.w100,
+    timeFontSize: 72,
+    dateColor: Color(0xFF80CBC4),
+  ),
+  // 8. Cherry Blossom — soft pink accent on dark
+  const WatchFaceStyle(
+    name: 'Cherry Blossom',
+    description: 'Soft pink elegance',
+    backgroundType: BackgroundType.gradient,
+    gradientColors: [Color(0xFF1A0010), Color(0xFF2D001A), Color(0xFF1A0010)],
+    timeColor: Color(0xFFF48FB1),
+    timeFontWeight: FontWeight.w200,
+    timeFontSize: 68,
+    dateColor: Color(0xFFCE93D8),
+    showHealth: true,
+  ),
+  // 9. Matrix Terminal — retro green monospace
+  const WatchFaceStyle(
+    name: 'Matrix',
+    description: 'Hacker terminal',
     backgroundType: BackgroundType.solid,
-    backgroundColor: Color(0xFF0a0a0a),
-    timeColor: Color(0xFF00FF00),
+    backgroundColor: Color(0xFF000000),
+    timeColor: Color(0xFF00FF41),
     timeFontWeight: FontWeight.w700,
     timeFontFamily: 'monospace',
-    timeFontSize: 62,
-    dateColor: Color(0xFF00FF00),
+    timeFontSize: 60,
+    dateColor: Color(0xFF00CC33),
+    showHealth: true,
+  ),
+  // 10. Luxury — gold on deep black
+  const WatchFaceStyle(
+    name: 'Luxury',
+    description: 'Premium gold accent',
+    backgroundType: BackgroundType.gradient,
+    gradientColors: [Color(0xFF0A0A0A), Color(0xFF1A1A0A), Color(0xFF0A0A0A)],
+    timeColor: Color(0xFFFFD700),
+    timeFontWeight: FontWeight.w200,
+    timeFontSize: 70,
+    dateColor: Color(0xFFDAA520),
+    showHealth: false,
+    showComplications: false,
   ),
 ];

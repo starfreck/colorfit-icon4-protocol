@@ -79,12 +79,33 @@ class DataStorage {
     return _settingsBox.get('bluetooth_enabled', defaultValue: false);
   }
   
+  Future<void> setIs24Hour(bool is24) async {
+    await _settingsBox.put('is_24_hour', is24);
+  }
+
+  bool getIs24Hour() {
+    return _settingsBox.get('is_24_hour', defaultValue: false); // Default to 12-hour
+  }
+
   Future<void> setDeviceAddress(String address) async {
     await _settingsBox.put('device_address', address);
   }
   
   String? getDeviceAddress() {
     return _settingsBox.get('device_address');
+  }
+
+  Future<void> setDeviceName(String name) async {
+    await _settingsBox.put('device_name', name);
+  }
+  
+  String? getDeviceName() {
+    return _settingsBox.get('device_name');
+  }
+
+  Future<void> clearDevice() async {
+    await _settingsBox.delete('device_address');
+    await _settingsBox.delete('device_name');
   }
   
   Future<void> setLastSync(DateTime timestamp) async {

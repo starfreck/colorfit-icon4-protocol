@@ -31,7 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadTimeFormat() async {
-    final is24Hour = _storage.getBluetoothEnabled() ? true : true;
+    final is24Hour = _storage.getIs24Hour();
     setState(() => _is24Hour = is24Hour);
   }
 
@@ -105,12 +105,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     try {
-      await service.sendPacket(ProtocolParser.buildTimeSync(DateTime.now()));
-      await Future.delayed(const Duration(milliseconds: 300));
-      await service.sendPacket(ProtocolParser.buildTimezoneSync(DateTime.now()));
+      await service.syncTime();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Time synced'), backgroundColor: Color(0xFF1DB954)),
+          const SnackBar(content: Text('Time & Timezone synced'), backgroundColor: Color(0xFF1DB954)),
         );
       }
     } catch (e) {
@@ -124,12 +122,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _toggleTimeFormat(bool value) async {
     setState(() => _is24Hour = value);
+    await _storage.setIs24Hour(value);
 
     final service = ref.read(bleServiceProvider);
     if (!service.isReady) return;
 
     try {
       await service.sendPacket(ProtocolParser.buildSetTimeSystem(value));
+      await Future.delayed(const Duration(milliseconds: 300));
+      await service.sendPacket(ProtocolParser.buildTimeSync(DateTime.now()));
+      await Future.delayed(const Duration(milliseconds: 300));
+      await service.sendPacket(ProtocolParser.buildTimezoneSync(DateTime.now()));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(value ? 'Switched to 24-hour format' : 'Switched to 12-hour format (AM/PM)'),
+            backgroundColor: const Color(0xFF1DB954),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

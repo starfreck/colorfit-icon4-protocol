@@ -4,6 +4,7 @@ import '../../data/models/health_data.dart';
 
 final bleServiceProvider = Provider<BluetoothService>((ref) {
   final service = BluetoothService();
+  service.init();
   ref.onDispose(() => service.dispose());
   return service;
 });
