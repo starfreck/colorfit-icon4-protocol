@@ -1,0 +1,33 @@
+# Build artifacts
+bin/
+*.exe
+
+# Private/sensitive data
+.private/
+
+# APK and decompilation tools
+tools/
+*.apk
+*.zip
+
+# Decompilation output (large, regenerate with jadx)
+decompiled/
+
+# Capture files
+capture/
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

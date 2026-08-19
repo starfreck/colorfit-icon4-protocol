@@ -1,0 +1,101 @@
+// Reconstructed protobuf schema for NoiseFit smartwatch BLE protocol.
+// Status: BEST GUESS — reconstructed from decompiled Java accessor methods
+// in the cn.appscomm.bluetooth package. Not confirmed via traffic capture.
+//
+// Source: NoiseFit APK (com.noisefit) decompiled with jadx.
+// Reference: https://github.com/garvitnxtdoor/noise-colorfit-ble-reverse-engineering
+
+syntax = "proto3";
+
+package noise;
+
+option java_package = "cn.appscomm.bluetooth.proto";
+
+// Wrapper for commands sent from phone to watch.
+message WatchCommand {
+  uint32 command_type = 1;  // Command code (e.g. 0x30 = sleep count)
+  bytes payload = 2;        // Command-specific payload
+}
+
+// Wrapper for responses received from watch.
+message WatchResponse {
+  uint32 response_type = 1; // Response type code
+  uint32 status = 2;        // 0 = success, non-zero = error
+  bytes payload = 3;        // Response-specific payload
+}
+
+// Sleep data record — one per sleep stage entry.
+message SleepRecord {
+  uint32 timestamp = 1;     // Unix timestamp of record
+  uint32 stage = 2;         // Sleep stage (see values below)
+  uint32 duration = 3;      // Duration in minutes
+
+  // Stage values:
+  // 0 = Deep Sleep
+  // 1 = Light Sleep
+  // 2 = Sober (resting)
+  // 3 = Awake
+  // 4 = REM
+  // 16 = Sleep Begin
+  // 17 = Sleep End
+}
+
+// Heart rate measurement.
+message HeartRateData {
+  uint32 timestamp = 1;     // Unix timestamp
+  uint32 heart_rate = 2;    // BPM
+  uint32 hr_type = 3;       // 0 = resting, 1 = active, 2 = manual
+}
+
+// Step / activity data.
+message StepData {
+  uint32 timestamp = 1;     // Unix timestamp
+  uint32 steps = 2;         // Step count
+  uint32 distance = 3;      // Distance in meters
+  uint32 calories = 4;      // Calories burned (kcal)
+}
+
+// SpO2 (blood oxygen) measurement.
+message SpO2Data {
+  uint32 timestamp = 1;     // Unix timestamp
+  uint32 spo2 = 2;          // Percentage (0-100)
+}
+
+// Battery status.
+message BatteryData {
+  uint32 level = 1;         // Percentage (0-100)
+  uint32 voltage = 2;       // Voltage in millivolts
+}
+
+// Device information.
+message DeviceInfo {
+  string firmware_version = 1;
+  string hardware_version = 2;
+  string serial_number = 3;
+  uint32 model_id = 4;
+}
+
+// Time sync command.
+message TimeSync {
+  uint32 unix_timestamp = 1; // Current Unix time
+  int32 utc_offset = 2;      // UTC offset in seconds
+  string timezone = 3;       // IANA timezone name
+}
+
+// User profile info.
+message UserProfile {
+  uint32 height = 1;         // Height in cm
+  uint32 weight = 2;         // Weight in kg (x10 for decimal, e.g. 755 = 75.5kg)
+  uint32 age = 3;
+  uint32 gender = 4;         // 0 = unknown, 1 = male, 2 = female
+}
+
+// Smart alarm / wake window configuration.
+message WakeWindow {
+  uint32 bed_hour = 1;
+  uint32 bed_minute = 2;
+  uint32 wake_hour = 3;
+  uint32 wake_minute = 4;
+  uint32 remind_sleep_cycle = 5;  // Remind at sleep cycle boundary
+  bool super_alarm_enabled = 6;   // Enable smart alarm on watch
+}
