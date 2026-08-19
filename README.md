@@ -14,12 +14,12 @@ and health data.
 | Feature | Status | Method |
 |---------|--------|--------|
 | Battery level | ✅ Working | Standard BLE Battery Service (0x180F) |
-| Heart rate history | ✅ Working | CrRepa cmd 0xAB — returns timestamped BPM readings |
+| Heart rate history | ✅ Working | CrRepa cmd 0xAB — timestamped BPM readings |
+| Live heart rate | ✅ Working | Standard HR Measurement (0x2A37) — real-time BPM |
+| Step count | ✅ Working | CrRepa cmd 0x33 — steps, distance, calories |
+| Time sync | ✅ Working | CrRepa cmd 0x31 — BIG-ENDIAN Unix timestamp |
 | Device info | ✅ Working | Standard BLE Device Information Service |
-| Step count | ⚠️ Command confirmed | CrRepa cmd 0x32 — needs response parsing |
-| Sleep data | ⚠️ Command confirmed | CrRepa cmd 0xBC — needs response parsing |
-| Live heart rate | ⚠️ UUID confirmed | Standard HR Measurement (0x2A37) — needs notification handling |
-| Time sync | ⚠️ Command confirmed | CrRepa cmd 0x31 — sends current time to watch |
+| Sleep data | ⚠️ Command confirmed | CrRePa cmd 0xBC — watch may have no sleep records |
 
 ## Hardware
 
